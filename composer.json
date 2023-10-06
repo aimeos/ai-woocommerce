@@ -1,5 +1,5 @@
 {
-	"name": "aimeos-extensions/ai-woocommerce",
+	"name": "aimeos/ai-woocommerce",
 	"description": "Aimeos ai-woocommerce extension",
 	"keywords": ["aimeos", "extension"],
 	"type": "aimeos-extension",
