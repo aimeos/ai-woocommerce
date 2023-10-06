@@ -21,6 +21,7 @@ class WooMigrateCategories extends Base
 	{
 		$this->info( 'Migrate WooCommerce categories', 'vv' );
 
+		$textManager = \Aimeos\MShop::create( $this->context(), 'text' );
 		$manager = \Aimeos\MShop::create( $this->context(), 'catalog' );
 		$cats = $manager->getTree( null, ['text'] )->toList();
 		$root = $manager->find( 'home' );
@@ -41,26 +42,42 @@ class WooMigrateCategories extends Base
 			ORDER BY tt.parent, t.name
 		' );
 
-		foreach( $result->iterateKeyValue() as $key => $row )
+		foreach( $result->iterateAssociative() as $row )
 		{
 			$item = $cats[$row['term_id']] ?? $manager->create();
-			$item->setLabel( $row['name'] )->setUrl( $row['slug'] );
+			$item->setCode( $row['slug'] )->setLabel( $row['name'] )->setUrl( $row['slug'] );
 
-			$listItem = $item->getListItems( 'text', 'default', 'long' )->first() ?? $manager->createListItem();
-			$item->addListItem( 'text', $listItem->setContent( $row['description'] ) );
+			if( !$item->getId() )
+			{
+				$parent = $cats[$row['parent']] ?? $root;
+				$item = $manager->insert( $item, $parent?->getId() );
 
-			$listItem = $item->getListItems( 'text', 'default', 'meta-title' )->first() ?? $manager->createListItem();
-			$item->addListItem( 'text', $listItem->setContent( $row['metatitle'] ) );
+				$db2->update( 'mshop_catalog', ['id' => $row['term_id']], ['id' => $item->getId()] );
+				$item->setId( $row['term_id'] );
+			}
 
-			$listItem = $item->getListItems( 'text', 'default', 'meta-description' )->first() ?? $manager->createListItem();
-			$item->addListItem( 'text', $listItem->setContent( $row['metadesc'] ) );
+			if( $row['description'] )
+			{
+				$listItem = $item->getListItems( 'text', 'default', 'long' )->first() ?? $manager->createListItem();
+				$refItem = $listItem->getRefItem() ?: $textManager->create();
+				$item->addListItem( 'text', $listItem, $refItem->setContent( $row['description'] ) );
+			}
 
-			$parent = $cats[$row['parent']] ?? null;
-			$item->getId() ? $manager->save( $item ) : $manager->insert( $item, $parent?->getId() );
+			if( $row['metatitle'] )
+			{
+				$listItem = $item->getListItems( 'text', 'default', 'meta-title' )->first() ?? $manager->createListItem();
+				$refItem = $listItem->getRefItem() ?: $textManager->create();
+				$item->addListItem( 'text', $listItem, $refItem->setContent( $row['metatitle'] ) );
+			}
 
-			$db2->update( 'mshop_catalog', ['id' => $row['term_id']], ['id' => $item->getId()] );
+			if( $row['metadesc'] )
+			{
+				$listItem = $item->getListItems( 'text', 'default', 'meta-description' )->first() ?? $manager->createListItem();
+				$refItem = $listItem->getRefItem() ?: $textManager->create();
+				$item->addListItem( 'text', $listItem, $refItem->setContent( $row['metadesc'] ) );
+			}
 
-			$cats[$item->getId()] = $item;
+			$cats[$item->getId()] = $manager->save( $item );
 		}
 	}
 }
