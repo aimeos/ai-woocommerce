@@ -7,25 +7,7 @@
 	"prefer-stable": true,
 	"minimum-stability": "dev",
 	"require": {
-		"php": "^8.0.11"
-	},
-	"require-dev": {
-		"phpunit/phpunit": "~9.0||~10.0"
-	},
-	"autoload": {
-		"psr-4": {
-			"Aimeos\\": "src"
-		},
-		"classmap": [
-			"src"
-		]
-	},
-	"autoload-dev": {
-		"psr-4": {
-			"Aimeos\\": "tests"
-		},
-		"classmap": [
-			"tests"
-		]
+		"php": "^8.0.11",
+		"aimeos/aimeos-core": "2023.10.*"
 	}
 }
