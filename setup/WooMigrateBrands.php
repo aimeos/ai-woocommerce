@@ -13,37 +13,42 @@ class WooMigrateBrands extends Base
 {
 	public function after() : array
 	{
-		return ['MShopSetLocale'];
+		return ['Supplier', 'MShopSetLocale'];
 	}
 
 
 	public function up()
 	{
+		$db = $this->db( 'db-woocommerce' );
+
+		if( !$db->hasTable( 'wp_terms' ) ) {
+			return;
+		}
+
 		$this->info( 'Migrate WooCommerce brands', 'vv' );
 
 		$textManager = \Aimeos\MShop::create( $this->context(), 'text' );
 		$manager = \Aimeos\MShop::create( $this->context(), 'supplier' );
-		$brands = $manager->search( $manager->filter()->slice( 0, 0x7fffffff ), ['text'] );
+		$items = $manager->search( $manager->filter()->slice( 0, 0x7fffffff ), ['text'] );
 
-		$db = $this->db( 'db-woocommerce' );
 		$db2 = $this->db( 'db-supplier' );
 
-		$result = $db->query( '
+		$result = $db->query( "
 			SELECT
 				t.term_id, t.name, t.slug, tt.description,
 				st.meta_value AS metatitle,
 				sd.meta_value AS metadesc
 			FROM wp_terms t
 			JOIN wp_term_taxonomy tt ON t.term_id=tt.term_id
-			LEFT JOIN wp_termmeta st ON st.term_id=t.term_id AND st.meta_key=\'_seopress_titles_title\'
-			LEFT JOIN wp_termmeta sd ON sd.term_id=t.term_id AND sd.meta_key=\'_seopress_titles_desc\'
-			WHERE taxonomy=\'brand\'
+			LEFT JOIN wp_termmeta st ON st.term_id=t.term_id AND st.meta_key='_seopress_titles_title'
+			LEFT JOIN wp_termmeta sd ON sd.term_id=t.term_id AND sd.meta_key='_seopress_titles_desc'
+			WHERE taxonomy='brand'
 			ORDER BY t.name
-		' );
+		" );
 
 		foreach( $result->iterateAssociative() as $row )
 		{
-			$item = $brands[$row['term_id']] ?? $manager->create();
+			$item = $items[$row['term_id']] ?? $manager->create();
 			$item->setCode( $row['slug'] )->setLabel( $row['name'] );
 
 			if( !$item->getId() )
@@ -75,7 +80,7 @@ class WooMigrateBrands extends Base
 				$item->addListItem( 'text', $listItem, $refItem->setContent( $row['metadesc'] ) );
 			}
 
-			$brands[$item->getId()] = $manager->save( $item );
+			$manager->save( $item );
 		}
 	}
 }

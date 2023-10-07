@@ -13,43 +13,48 @@ class WooMigrateCategories extends Base
 {
 	public function after() : array
 	{
-		return ['MShopSetLocale'];
+		return ['Catalog', 'MShopSetLocale'];
 	}
 
 
 	public function up()
 	{
+		$db = $this->db( 'db-woocommerce' );
+
+		if( !$db->hasTable( 'wp_terms' ) ) {
+			return;
+		}
+
 		$this->info( 'Migrate WooCommerce categories', 'vv' );
 
 		$textManager = \Aimeos\MShop::create( $this->context(), 'text' );
 		$manager = \Aimeos\MShop::create( $this->context(), 'catalog' );
-		$cats = $manager->getTree( null, ['text'] )->toList();
+		$items = $manager->getTree( null, ['text'] )->toList();
 		$root = $manager->find( 'home' );
 
-		$db = $this->db( 'db-woocommerce' );
 		$db2 = $this->db( 'db-catalog' );
 
-		$result = $db->query( '
+		$result = $db->query( "
 			SELECT
 				t.term_id, tt.parent, t.name, t.slug, tt.description,
 				st.meta_value AS metatitle,
 				sd.meta_value AS metadesc
 			FROM wp_terms t
 			JOIN wp_term_taxonomy tt ON t.term_id=tt.term_id
-			LEFT JOIN wp_termmeta st ON st.term_id=t.term_id AND st.meta_key=\'_seopress_titles_title\'
-			LEFT JOIN wp_termmeta sd ON sd.term_id=t.term_id AND sd.meta_key=\'_seopress_titles_desc\'
-			WHERE taxonomy=\'product_cat\'
+			LEFT JOIN wp_termmeta st ON st.term_id=t.term_id AND st.meta_key='_seopress_titles_title'
+			LEFT JOIN wp_termmeta sd ON sd.term_id=t.term_id AND sd.meta_key='_seopress_titles_desc'
+			WHERE taxonomy='product_cat'
 			ORDER BY tt.parent, t.name
-		' );
+		" );
 
 		foreach( $result->iterateAssociative() as $row )
 		{
-			$item = $cats[$row['term_id']] ?? $manager->create();
+			$item = $items[$row['term_id']] ?? $manager->create();
 			$item->setCode( $row['slug'] )->setLabel( $row['name'] )->setUrl( $row['slug'] );
 
 			if( !$item->getId() )
 			{
-				$parent = $cats[$row['parent']] ?? $root;
+				$parent = $items[$row['parent']] ?? $root;
 				$item = $manager->insert( $item, $parent?->getId() );
 
 				$db2->update( 'mshop_catalog', ['id' => $row['term_id']], ['id' => $item->getId()] );
@@ -77,7 +82,7 @@ class WooMigrateCategories extends Base
 				$item->addListItem( 'text', $listItem, $refItem->setContent( $row['metadesc'] ) );
 			}
 
-			$cats[$item->getId()] = $manager->save( $item );
+			$items[$item->getId()] = $manager->save( $item );
 		}
 	}
 }
