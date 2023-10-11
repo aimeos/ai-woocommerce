@@ -46,12 +46,16 @@ class WooMigrateProducts extends Base
 				t.name AS type,
 				pm.sku,
 				pm.stock_quantity,
-				pm.stock_status
+				pm.stock_status,
+				st.meta_value AS metatitle,
+				sd.meta_value AS metadesc
 			FROM wp_posts p
 			JOIN wp_wc_product_meta_lookup pm ON p.ID = pm.product_id
 			JOIN wp_term_relationships tr ON p.ID = tr.object_id
 			JOIN wp_term_taxonomy tt ON tt.term_taxonomy_id = tr.term_taxonomy_id
 			JOIN wp_terms t ON t.term_id = tt.term_id
+			LEFT JOIN wp_postmeta st ON st.post_id=p.ID AND st.meta_key='_seopress_titles_title'
+			LEFT JOIN wp_postmeta sd ON sd.post_id=p.ID AND sd.meta_key='_seopress_titles_desc'
 			WHERE p.post_type = 'product' AND p.post_status = 'publish' AND tt.taxonomy='product_type'
 		" );
 
@@ -316,15 +320,31 @@ class WooMigrateProducts extends Base
 				$item->setId( $row['ID'] );
 			}
 
-			if( $long = ( $row['post_content'] ?? null ) ?: ( $row['post_excerpt'] ?? null ) )
+			if( $text = ( $row['post_content'] ?? null ) ?: ( $row['post_excerpt'] ?? null ) )
 			{
 				$listItem = $item->getListItems( 'text', 'default', 'long' )->first() ?? $manager->createListItem();
 				$refItem = $listItem->getRefItem() ?: $textManager->create();
-				$refItem->setType( 'long' )->setLanguageId( $langId )->setContent( $long )->setLabel( mb_substr( strip_tags( $long ), 0, 60 ) );
-				$item->addListItem( 'text', $listItem, $refItem );
+				$refItem->setType( 'long' )->setLanguageId( $langId )->setContent( $text );
+				$item->addListItem( 'text', $listItem, $refItem->setLabel( mb_substr( strip_tags( $text ), 0, 60 ) ) );
 			}
 
-			if( $row['stock_status'] )
+			if( $text = $row['metatitle'] ?? null )
+			{
+				$listItem = $item->getListItems( 'text', 'default', 'meta-title' )->first() ?? $manager->createListItem();
+				$refItem = $listItem->getRefItem() ?: $textManager->create();
+				$refItem->setType( 'meta-title' )->setLanguageId( $langId )->setContent( $text );
+				$item->addListItem( 'text', $listItem, $refItem->setLabel( mb_substr( strip_tags( $text ), 0, 60 ) ) );
+			}
+
+			if( $text = $row['metadesc'] ?? null )
+			{
+				$listItem = $item->getListItems( 'text', 'default', 'meta-description' )->first() ?? $manager->createListItem();
+				$refItem = $listItem->getRefItem() ?: $textManager->create();
+				$refItem->setType( 'meta-description' )->setLanguageId( $langId )->setContent( $text );
+				$item->addListItem( 'text', $listItem, $refItem->setLabel( mb_substr( strip_tags( $text ), 0, 60 ) ) );
+			}
+
+			if( $row['stock_status'] ?? null )
 			{
 				$stockItem = $item->getStockItems( 'default' )->first() ?? $stockManager->create();
 				$stockManager->save( $stockItem->setProductId( $row['ID'] )->setStockLevel( $row['stock_quantity'] ) );

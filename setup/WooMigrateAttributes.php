@@ -31,15 +31,17 @@ class WooMigrateAttributes extends Base
 		$manager = \Aimeos\MShop::create( $this->context(), 'attribute' );
 		$items = $manager->search( $manager->filter()->slice( 0, 0x7fffffff ), ['text'] );
 
+		$langId = $this->context()->locale()->getLanguageId();
+
 		$db2 = $this->db( 'db-attribute' );
 
-		$result = $db->query( '
+		$result = $db->query( "
 			SELECT t.term_id, t.name, t.slug, tt.taxonomy, tt.description
 			FROM wp_terms t
 			JOIN wp_term_taxonomy tt ON t.term_id=tt.term_id
-			WHERE taxonomy LIKE \'pa_%\'
+			WHERE taxonomy LIKE 'pa_%'
 			ORDER BY tt.taxonomy, t.name
-		' );
+		" );
 
 		$pos = 0;
 		$type = '';
@@ -67,11 +69,12 @@ class WooMigrateAttributes extends Base
 				$item->setId( $row['term_id'] );
 			}
 
-			if( $row['description'] )
+			if( $text = $row['description'] ?? null )
 			{
 				$listItem = $item->getListItems( 'text', 'default', 'long' )->first() ?? $manager->createListItem();
 				$refItem = $listItem->getRefItem() ?: $textManager->create();
-				$item->addListItem( 'text', $listItem, $refItem->setContent( $row['description'] ) );
+				$refItem->setType( 'long' )->setLanguageId( $langId )->setContent( $text );
+				$item->addListItem( 'text', $listItem, $refItem->setLabel( mb_substr( strip_tags( $text ), 0, 60 ) ) );
 			}
 
 			$manager->save( $item );

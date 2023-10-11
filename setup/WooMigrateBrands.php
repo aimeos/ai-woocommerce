@@ -29,7 +29,9 @@ class WooMigrateBrands extends Base
 
 		$textManager = \Aimeos\MShop::create( $this->context(), 'text' );
 		$manager = \Aimeos\MShop::create( $this->context(), 'supplier' );
-		$items = $manager->search( $manager->filter()->slice( 0, 0x7fffffff ), ['text'] );
+		$brands = $manager->search( $manager->filter()->slice( 0, 0x7fffffff ), ['text'] );
+
+		$langId = $this->context()->locale()->getLanguageId();
 
 		$db2 = $this->db( 'db-supplier' );
 
@@ -48,7 +50,7 @@ class WooMigrateBrands extends Base
 
 		foreach( $result->iterateAssociative() as $row )
 		{
-			$item = $items[$row['term_id']] ?? $manager->create();
+			$item = $brands[$row['term_id']] ?? $manager->create();
 			$item->setCode( $row['slug'] )->setLabel( $row['name'] );
 
 			if( !$item->getId() )
@@ -59,28 +61,31 @@ class WooMigrateBrands extends Base
 				$item->setId( $row['term_id'] );
 			}
 
-			if( $row['description'] )
+			if( $text = $row['description'] ?? null )
 			{
 				$listItem = $item->getListItems( 'text', 'default', 'long' )->first() ?? $manager->createListItem();
 				$refItem = $listItem->getRefItem() ?: $textManager->create();
-				$item->addListItem( 'text', $listItem, $refItem->setContent( $row['description'] ) );
+				$refItem->setType( 'long' )->setLanguageId( $langId )->setContent( $text );
+				$item->addListItem( 'text', $listItem, $refItem->setLabel( mb_substr( strip_tags( $text ), 0, 60 ) ) );
 			}
 
-			if( $row['metatitle'] )
+			if( $text = $row['metatitle'] ?? null )
 			{
 				$listItem = $item->getListItems( 'text', 'default', 'meta-title' )->first() ?? $manager->createListItem();
 				$refItem = $listItem->getRefItem() ?: $textManager->create();
-				$item->addListItem( 'text', $listItem, $refItem->setContent( $row['metatitle'] ) );
+				$refItem->setType( 'meta-title' )->setLanguageId( $langId )->setContent( $text );
+				$item->addListItem( 'text', $listItem, $refItem->setLabel( mb_substr( strip_tags( $text ), 0, 60 ) ) );
 			}
 
-			if( $row['metadesc'] )
+			if( $text = $row['metadesc'] ?? null )
 			{
 				$listItem = $item->getListItems( 'text', 'default', 'meta-description' )->first() ?? $manager->createListItem();
 				$refItem = $listItem->getRefItem() ?: $textManager->create();
-				$item->addListItem( 'text', $listItem, $refItem->setContent( $row['metadesc'] ) );
+				$refItem->setType( 'meta-description' )->setLanguageId( $langId )->setContent( $text );
+				$item->addListItem( 'text', $listItem, $refItem->setLabel( mb_substr( strip_tags( $text ), 0, 60 ) ) );
 			}
 
-			$manager->save( $item );
+			$brands[$item->getId()] = $manager->save( $item );
 		}
 	}
 }

@@ -32,6 +32,8 @@ class WooMigrateCategories extends Base
 		$items = $manager->getTree( null, ['text'] )->toList();
 		$root = $manager->find( 'home' );
 
+		$langId = $this->context()->locale()->getLanguageId();
+
 		$db2 = $this->db( 'db-catalog' );
 
 		$result = $db->query( "
@@ -61,25 +63,28 @@ class WooMigrateCategories extends Base
 				$item->setId( $row['term_id'] );
 			}
 
-			if( $row['description'] )
+			if( $text = $row['description'] ?? null )
 			{
 				$listItem = $item->getListItems( 'text', 'default', 'long' )->first() ?? $manager->createListItem();
 				$refItem = $listItem->getRefItem() ?: $textManager->create();
-				$item->addListItem( 'text', $listItem, $refItem->setContent( $row['description'] ) );
+				$refItem->setType( 'long' )->setLanguageId( $langId )->setContent( $text );
+				$item->addListItem( 'text', $listItem, $refItem->setLabel( mb_substr( strip_tags( $text ), 0, 60 ) ) );
 			}
 
-			if( $row['metatitle'] )
+			if( $text = $row['metatitle'] ?? null )
 			{
 				$listItem = $item->getListItems( 'text', 'default', 'meta-title' )->first() ?? $manager->createListItem();
 				$refItem = $listItem->getRefItem() ?: $textManager->create();
-				$item->addListItem( 'text', $listItem, $refItem->setContent( $row['metatitle'] ) );
+				$refItem->setType( 'meta-title' )->setLanguageId( $langId )->setContent( $text );
+				$item->addListItem( 'text', $listItem, $refItem->setLabel( mb_substr( strip_tags( $text ), 0, 60 ) ) );
 			}
 
-			if( $row['metadesc'] )
+			if( $text = $row['metadesc'] ?? null )
 			{
 				$listItem = $item->getListItems( 'text', 'default', 'meta-description' )->first() ?? $manager->createListItem();
 				$refItem = $listItem->getRefItem() ?: $textManager->create();
-				$item->addListItem( 'text', $listItem, $refItem->setContent( $row['metadesc'] ) );
+				$refItem->setType( 'meta-description' )->setLanguageId( $langId )->setContent( $text );
+				$item->addListItem( 'text', $listItem, $refItem->setLabel( mb_substr( strip_tags( $text ), 0, 60 ) ) );
 			}
 
 			$items[$item->getId()] = $manager->save( $item );
