@@ -185,12 +185,20 @@ class WooMigrateProducts extends Base
 	{
 		$mediaManager = \Aimeos\MShop::create( $this->context(), 'media' );
 
+		$db2 = $this->db( 'db-woocommerce', true );
 		$result = $this->db( 'db-woocommerce' )->query( "
-			SELECT p.ID, p.post_title, am.meta_value AS image
-			FROM wp_posts p
-			JOIN wp_postmeta pm ON pm.post_id = p.ID AND pm.meta_key = '_thumbnail_id'
-			JOIN wp_postmeta am ON am.post_id = pm.meta_value AND am.meta_key = '_wp_attached_file'
-			WHERE p.post_type = 'product' AND p.post_status = 'publish'
+			SELECT
+				p.ID,
+				p.post_title,
+				main_img.meta_value AS image,
+				gallery_pm.meta_value AS image_ids
+			FROM  wp_posts p
+			JOIN wp_postmeta pm ON p.ID = pm.post_id AND pm.meta_key = '_thumbnail_id'
+			JOIN wp_postmeta main_img ON main_img.post_id = pm.meta_value AND main_img.meta_key = '_wp_attached_file'
+			LEFT JOIN wp_postmeta gallery_pm ON p.ID = gallery_pm.post_id AND gallery_pm.meta_key = '_product_image_gallery'
+			WHERE
+				p.post_type = 'product' AND
+				p.post_status = 'publish'
 		" );
 
 		$manager = \Aimeos\MShop::create( $this->context(), 'product' );
@@ -199,11 +207,42 @@ class WooMigrateProducts extends Base
 		{
 			if( $item = $items->get( $row['ID'] ) )
 			{
-				$listItem = $item->getListItems( 'media', 'default', 'default' )->first() ?? $manager->createListItem();
-				$refItem = $listItem->getRefItem() ?: $mediaManager->create();
-				$item->addListItem( 'media', $listItem, $refItem->setUrl( $row['image'] )->setLabel( $row['post_title'] ) );
+				$listItems = $item->getListItems( 'media', 'default', 'default' )->reverse();
+				$images = [$row['image']];
+				$pos = 0;
+
+				if( $row['image_ids'] )
+				{
+					$ids = array_filter( explode( ',', $row['image_ids'] ) );
+					$images += $db2->query( "
+						SELECT post_id, meta_value FROM wp_postmeta
+						WHERE post_id IN (" . join( ',', $ids ) . ") AND meta_key = '_wp_attached_file'
+					" )->fetchAllKeyValue();
+				}
+
+				foreach( $images as $image )
+				{
+					$listItem = $listItems->pop() ?? $manager->createListItem();
+					$refItem = $listItem->getRefItem() ?: $mediaManager->create();
+					$refItem->setUrl( $image )->setLabel( $row['post_title'] )->setMimetype( $this->mime( $image ) );
+					$item->addListItem( 'media', $listItem->setPosition( $pos++ ), $refItem );
+				}
 			}
 		}
+
+		$db2->close();
+	}
+
+
+	protected function mime( string $name ) : string
+	{
+		return match( pathinfo( $name, PATHINFO_EXTENSION ) ) {
+			'webp' => 'image/webp',
+			'jpeg' => 'image/jpeg',
+			'jpg' => 'image/jpeg',
+			'png' => 'image/png',
+			'gif' => 'image/gif',
+		};
 	}
 
 
