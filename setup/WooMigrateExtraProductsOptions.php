@@ -56,12 +56,14 @@ class WooMigrateExtraProductsOptions extends Base
 			ORDER BY p.ID
 		" );
 
-		$map = [];
-		foreach( $result->iterateAssociative() as $row ) {
-			$map[$row['catid']][] = $row;
+		$map = $catids = [];
+		foreach( $result->iterateAssociative() as $row )
+		{
+			$catids[$row['ID']][] = $row['catid'];
+			$map[$row['ID']] = $row;
 		}
 
-		$this->update( $map );
+		$this->update( $map, $catids );
 	}
 
 
@@ -82,32 +84,29 @@ class WooMigrateExtraProductsOptions extends Base
 	}
 
 
-	public function update( array $map )
+	public function update( array $map, array $catids )
 	{
 		$pos = 0;
 
-		foreach( $map as $catid => $list )
+		foreach( $map as $tid => $row )
 		{
-			foreach( $list as $row )
-			{
-				if( ( $content = unserialize( $row['template'] ?? '' ) ) === false ) {
-					error_log( sprintf( 'Template for category "%1$s" can not be unserialized', $catid ) );
-					continue;
-				}
+			if( ( $content = unserialize( $row['template'] ?? '' ) ) === false ) {
+				error_log( sprintf( 'Template "%1$s" can not be unserialized', $tid ) );
+				continue;
+			}
 
-				if( ( $section = $content['tmfbuilder'] ?? null ) === null ) {
-					continue;
-				}
+			if( ( $section = $content['tmfbuilder'] ?? null ) === null ) {
+				continue;
+			}
 
-				if( in_array( 'radiobuttons', $section['element_type'] )
-					&& !empty( $section['multiple_radiobuttons_options_enabled'] )
-				) {
-					$typeItem = $this->attributeType( $row['ID'], $section, $content['priority'] ?? 0 );
-					$attrIds = $this->attributesItems( $row['ID'], $section, $typeItem->getCode() );
+			if( in_array( 'radiobuttons', $section['element_type'] )
+				&& !empty( $section['multiple_radiobuttons_options_enabled'] )
+			) {
+				$typeItem = $this->attributeType( $tid, $section, $content['priority'] ?? 0 );
+				$attrIds = $this->attributesItems( $tid, $section, $typeItem->getCode() );
 
-					$excluded = unserialize( $row['excludes'] ?? '' ) ?: [];
-					$this->assign( $catid, $attrIds, 'attribute', 'config', $excluded, $pos++ );
-				}
+				$excluded = unserialize( $row['excludes'] ?? '' ) ?: [];
+				$this->assign( $catids[$tid] ?? [], $attrIds, 'attribute', 'config', $excluded, $pos++ );
 			}
 		}
 	}
@@ -289,13 +288,17 @@ class WooMigrateExtraProductsOptions extends Base
 	}
 
 
-	protected function assign( string $catid, array $refIds, string $domain, string $listType, array $excluded = [], $pos = 0 )
+	protected function assign( array $catids, array $refIds, string $domain, string $listType, array $excluded = [], $pos = 0 )
 	{
+		if( empty( $catids ) ) {
+			return;
+		}
+
 		$context = $this->context();
 		$manager = \Aimeos\MShop::create( $context, 'product' );
 
 		$filter = $manager->filter();
-		$filter->add( $filter->make( 'product:has', ['catalog', 'default', $catid] ), '!=', null );
+		$filter->add( $filter->make( 'product:has', ['catalog', 'default', $catids] ), '!=', null );
 		$cursor = $manager->cursor( $filter );
 
 		while( $items = $manager->iterate( $cursor, [$domain] ) )
