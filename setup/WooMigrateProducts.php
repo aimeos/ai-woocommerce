@@ -248,29 +248,51 @@ class WooMigrateProducts extends Base
 
 	protected function prices( \Aimeos\Map $items )
 	{
-		$priceManager = \Aimeos\MShop::create( $this->context(), 'price' );
-		$currencyId = $this->context()->locale()->getCurrencyId();
+		$context = $this->context();
 		$db = $this->db( 'db-woocommerce' );
+		$currencyId = $context->locale()->getCurrencyId();
+
+		$manager = \Aimeos\MShop::create( $context, 'product' );
+		$priceManager = \Aimeos\MShop::create( $context, 'price' );
 
 		$taxrate = $db->query( "SELECT tax_rate FROM wp_woocommerce_tax_rates LIMIT 1" )->fetchOne();
+		$priceItem = $priceManager->create()->setDomain( 'product' )->setCurrencyId( $currencyId )->setTaxrate( $taxrate );
 
 		$result = $db->query( "
-			SELECT post_id, meta_value
-			FROM wp_postmeta
-			WHERE meta_key = '_regular_price'
+			SELECT
+				p.ID,
+				p.post_parent AS selectionid,
+				pm.meta_value AS price,
+				pms.meta_value AS saleprice
+			FROM wp_posts p
+			JOIN wp_postmeta pm ON p.ID = pm.post_id AND pm.meta_key = '_regular_price'
+			LEFT JOIN wp_postmeta pms ON p.ID = pms.post_id AND pms.meta_key = '_sale_price'
 		" );
-
-		$manager = \Aimeos\MShop::create( $this->context(), 'product' );
 
 		foreach( $result->iterateAssociative() as $row )
 		{
-			if( $item = $items->get( $row['post_id'] ) )
+			if( $item = $items->get( $row['ID'] ) )
+			{
+				$listItems = $item->getListItems( 'price', 'default', 'default' )->reverse();
+
+				$listItem = $listItems->pop() ?? $manager->createListItem();
+				$refItem = $listItem->getRefItem() ?: clone $priceItem;
+				$item->addListItem( 'price', $listItem, $refItem->setValue( $row['price'] ) );
+
+				if( $row['saleprice'] > 0 )
+				{
+					$listItem = $listItems->pop() ?? $manager->createListItem();
+					$refItem = $listItem->getRefItem() ?: clone $priceItem;
+					$refItem->setValue( $row['saleprice'] )->setRebate( $row['price'] - $row['saleprice'] );
+					$item->addListItem( 'price', $listItem, $refItem );
+				}
+			}
+
+			if( $item = $items->get( $row['selectionid'] ) )
 			{
 				$listItem = $item->getListItems( 'price', 'default', 'default' )->first() ?? $manager->createListItem();
-
-				$refItem = $listItem->getRefItem() ?: $priceManager->create();
-				$refItem->setValue( $row['meta_value'] )->setCurrencyId( $currencyId )->setTaxrate( $taxrate );
-
+				$refItem = $listItem->getRefItem() ?: clone $priceItem;
+				$refItem->setValue( $row['saleprice'] )->setRebate( $row['saleprice'] > 0 ? $row['price'] - $row['saleprice'] : $row['price'] );
 				$item->addListItem( 'price', $listItem, $refItem );
 			}
 		}
