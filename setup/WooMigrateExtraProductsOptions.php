@@ -12,7 +12,12 @@ namespace Aimeos\Upscheme\Task;
 class WooMigrateExtraProductsOptions extends Base
 {
 	private $context;
+	private $attribute;
 	private $attrTypes;
+	private $listItem;
+	private $media;
+	private $price;
+	private $text;
 
 
 	public function after() : array
@@ -79,6 +84,8 @@ class WooMigrateExtraProductsOptions extends Base
 
 	public function update( array $map )
 	{
+		$pos = 0;
+
 		foreach( $map as $catid => $list )
 		{
 			foreach( $list as $row )
@@ -96,17 +103,193 @@ class WooMigrateExtraProductsOptions extends Base
 					&& !empty( $section['multiple_radiobuttons_options_enabled'] )
 				) {
 					$typeItem = $this->attributeType( $row['ID'], $section, $content['priority'] ?? 0 );
-					$attrIds = $this->attribute( $row['ID'], $section, $typeItem->getCode() );
+					$attrIds = $this->attributesItems( $row['ID'], $section, $typeItem->getCode() );
 
 					$excluded = unserialize( $row['excludes'] ?? '' ) ?: [];
-					$this->assign( $catid, $attrIds, 'attribute', 'config', $excluded );
+					$this->assign( $catid, $attrIds, 'attribute', 'config', $excluded, $pos++ );
 				}
 			}
 		}
 	}
 
 
-	protected function assign( string $catid, array $refIds, string $domain, string $listType, array $excluded = [] )
+	protected function addProducts( array $section, int $idx, \Aimeos\MShop\Attribute\Item\Iface $item )
+	{
+		if( $section['product_enabled'][$idx] ?? null )
+		{
+			if( ( $section['product_mode'][$idx] ?? '' ) === 'categories' )
+			{
+				$catIds = (array) $section['product_categoryids'][$idx] ?? [];
+				$sort = $section['product_orderby'][$idx] ?? 'ID';
+				$dir = $section['product_order'][$idx] ?? 'asc';
+
+				$prodIds = $this->catproducts( $catIds, $sort, $dir );
+			}
+			elseif( in_array( $section['product_mode'][$idx] ?? '', ['products', 'product'] ) )
+			{
+				$prodIds = (array) $section['product_productids'][$idx] ?? [];
+			}
+			else
+			{
+				error_log( sprintf( 'Unknown product mode %1$s', $section['product_mode'][$idx] ?? '' ) );
+				return;
+			}
+
+			$listItems = $item->getListItems( 'product', 'default' )->reverse();
+
+			foreach( $prodIds as $pos => $prodId )
+			{
+				$listItem = $item->getListItem( 'product', 'default', $prodId ) ?: $this->listItem();
+				$item->addListItem( 'product', $listItem->setRefId( $prodId )->setPosition( $pos ) );
+				$listItems->remove( $listItem->getId() );
+			}
+
+			$item->deleteListItems( $listItems );
+		}
+	}
+
+
+	protected function addRadioButtons( string $tid, array $section, string $typeCode , int $idx, \Aimeos\Map $attrItems, int $elIdx ) : array
+	{
+		$assign = [];
+
+		if( !( $section['radiobuttons_enabled'][$idx] ?? null ) ) {
+			return $assign;
+		}
+
+		foreach( $section['multiple_radiobuttons_options_enabled'][$idx] as $key => $status )
+		{
+			if( !$status ) {
+				continue;
+			}
+
+			$price = $section['multiple_radiobuttons_options_price'][$idx][$key] ?? 0;
+			$name = $section['multiple_radiobuttons_options_title'][$idx][$key] ?? '';
+			$image = $section['multiple_radiobuttons_options_image'][$idx][$key] ?? null;
+			$cimage = $section['multiple_radiobuttons_options_imagec'][$idx][$key] ?? null;
+			$lgimage = $section['multiple_radiobuttons_options_imagel'][$idx][$key] ?? null;
+			$desc = $section['multiple_radiobuttons_options_description'][$idx][$key] ?? '';
+			$code = \Aimeos\Base\Str::slug( $section['multiple_radiobuttons_options_value'][$idx][$key] ?? '' );
+
+			if( !$code ) {
+				error_log( 'No value for "multiple_radiobuttons_options_value" in template ' . $tid );
+				continue;
+			}
+
+			$code .= '_' . $tid . '_' . $idx . '_' . $key;
+
+			if( $idx !== 0 && $price > 0 )
+			{
+				$this->createProduct( $typeCode . '_' . $code, $name, $desc, $price, [$lgimage, $image, $cimage] );
+				continue;
+			}
+
+			$item = $attrItems[$code] ?? $this->attribute();
+			$item->setCode( $code )->setLabel( $name ?: $code )->setType( $typeCode )->setPosition( $elIdx * 100 + $idx * 10 + $key );
+
+			$mediaListItems = $item->getListItems( 'media', 'default', 'icon' )->reverse();
+			foreach( array_unique( array_filter( [$image, $cimage] ) ) as $pos => $imgurl )
+			{
+				$listItem = $mediaListItems->pop() ?: $this->listItem();
+				$refItem = $listItem->getRefItem() ?: $this->media();
+				$refItem->setType( 'icon' )->setUrl( $imgurl )->setLabel( $name )->setMimetype( $this->mime( $imgurl ) );
+				$item->addListItem( 'media', $listItem, $refItem );
+			}
+			$item->deleteListItems( $mediaListItems );
+
+			if( $lgimage )
+			{
+				$listItem = $item->getListItems( 'media', 'default', 'default' )->first() ?: $this->listItem();
+				$refItem = $listItem->getRefItem() ?: $this->media();
+				$refItem->setType( 'default' )->setUrl( $lgimage )->setLabel( $name )->setMimetype( $this->mime( $lgimage ) );
+				$item->addListItem( 'media', $listItem, $refItem );
+			}
+
+			if( $desc )
+			{
+				$listItem = $item->getListItems( 'text', 'default', 'long' )->first() ?: $this->listItem();
+				$refItem = $listItem->getRefItem() ?: $this->text();
+				$refItem->setType( 'long' )->setContent( $desc )->setLabel( mb_strcut( $desc, 0, 100 ) );
+				$item->addListItem( 'text', $listItem, $refItem );
+			}
+
+			if( $price && preg_match( '/^[0-9]+\.?[0-9]*$/', $price ) === 1 )
+			{
+				$listItem = $item->getListItems( 'price', 'default', 'default' )->first() ?: $this->listItem();
+				$refItem = $listItem->getRefItem() ?: $this->price();
+				$refItem->setType( 'default' )->setValue( $price );
+				$item->addListItem( 'price', $listItem, $refItem );
+			}
+
+			$attrItems[$code] = $item;
+			$assign[$key][] = $item;
+		}
+
+		return $assign;
+	}
+
+
+	protected function addSelectBox( string $tid, array $section, string $typeCode, int $idx, \Aimeos\Map $attrItems, int $elIdx ) : array
+	{
+		$assign = [];
+
+		if( !( $section['selectbox_enabled'][$idx] ?? null ) ) {
+			return $assign;
+		}
+
+		foreach( $section['multiple_selectbox_options_value'][$idx] as $key => $value )
+		{
+			$price = $section['multiple_selectbox_options_price'][$idx][$key] ?? 0;
+			$name = $section['multiple_selectbox_options_title'][$idx][$key] ?? '';
+			$image = $section['multiple_selectbox_options_image'][$idx][$key] ?? null;
+			$cimage = $section['multiple_selectbox_options_imagec'][$idx][$key] ?? null;
+			$lgimage = $section['multiple_selectbox_options_imagel'][$idx][$key] ?? null;
+			$code = \Aimeos\Base\Str::slug( $value );
+
+			if( !$code ) {
+				error_log( 'No value for "multiple_selectbox_options_value" in template ' . $tid );
+				continue;
+			}
+
+			$code .= '_' . $tid . '_' . $idx . '_' . $key;
+			$item = $attrItems[$code] ?? $this->attribute();
+			$item->setCode( $code )->setLabel( $name ?: $code )->setType( $typeCode )->setPosition( $elIdx * 100 + $idx * 10 + $key );
+
+			$mediaListItems = $item->getListItems( 'media', 'default', 'icon' )->reverse();
+
+			foreach( array_filter( [$image, $cimage] ) as $pos => $imgurl )
+			{
+				$listItem = $mediaListItems->pop() ?: $this->listItem();
+				$refItem = $listItem->getRefItem() ?: $this->media();
+				$refItem->setType( 'icon' )->setUrl( $imgurl )->setLabel( $name )->setMimetype( $this->mime( $imgurl ) );
+				$item->addListItem( 'media', $listItem, $refItem );
+			}
+
+			if( $lgimage )
+			{
+				$listItem = $item->getListItems( 'media', 'default', 'default' )->first() ?: $this->listItem();
+				$refItem = $listItem->getRefItem() ?: $this->media();
+				$refItem->setType( 'default' )->setUrl( $lgimage )->setLabel( $name )->setMimetype( $this->mime( $lgimage ) );
+				$item->addListItem( 'media', $listItem, $refItem );
+			}
+
+			if( $price && preg_match( '/^[0-9]+\.?[0-9]*$/', $price ) === 1 )
+			{
+				$listItem = $item->getListItems( 'price', 'default', 'default' )->first() ?: $this->listItem();
+				$refItem = $listItem->getRefItem() ?: $this->price();
+				$refItem->setType( 'default' )->setValue( $price );
+				$item->addListItem( 'price', $listItem, $refItem );
+			}
+
+			$attrItems[$code] = $item;
+			$assign[$key][] = $item;
+		}
+
+		return $assign;
+	}
+
+
+	protected function assign( string $catid, array $refIds, string $domain, string $listType, array $excluded = [], $pos = 0 )
 	{
 		$context = $this->context();
 		$manager = \Aimeos\MShop::create( $context, 'product' );
@@ -123,11 +306,11 @@ class WooMigrateExtraProductsOptions extends Base
 					continue;
 				}
 
-				$pos = 0;
+				$idx = 0;
 				foreach( $refIds as $refId )
 				{
 					$listItem = $item->getListItem( $domain, $listType, $refId ) ?? $manager->createListItem();
-					$item->addListItem( $domain, $listItem->setType( $listType )->setRefId( $refId )->setPosition( $pos++ ) );
+					$item->addListItem( $domain, $listItem->setType( $listType )->setRefId( $refId )->setPosition( $pos * 100 + $idx++ ) );
 				}
 			}
 
@@ -138,100 +321,58 @@ class WooMigrateExtraProductsOptions extends Base
 	}
 
 
-	protected function attribute( string $tid, array $section, string $typeCode ) : array
+	/**
+	 * Returns an new attribute item
+	 *
+	 * @return \Aimeos\MShop\Attribute\Item\Iface New attribute Item
+	 */
+	protected function attribute() : \Aimeos\MShop\Attribute\Item\Iface
 	{
-		$attrCodes = [];
-		$context = $this->context();
-		$langId = $context->locale()->getLanguageId();
-		$currencyId = $this->context()->locale()->getCurrencyId();
+		if( !isset( $this->attribute ) )
+		{
+			$manager = \Aimeos\MShop::create( $this->context(), 'attribute' );
+			$this->attribute = $manager->create()->setDomain( 'product' );
+		}
 
-		$attrManager = \Aimeos\MShop::create( $context, 'attribute' );
-		$mediaManager = \Aimeos\MShop::create( $context, 'media' );
-		$priceManager = \Aimeos\MShop::create( $context, 'price' );
-		$textManager = \Aimeos\MShop::create( $context, 'text' );
+		return clone $this->attribute;
+	}
 
+
+	protected function attributesItems( string $tid, array $section, string $typeCode ) : array
+	{
+		$attrCodes = $attrs = [];
+		$selectIdx = $radioIdx = $productIdx = 0;
+
+		$attrManager = \Aimeos\MShop::create( $this->context(), 'attribute' );
 		$filter = $attrManager->filter()->add( 'attribute.type', '==', $typeCode ) ->slice( 0, 0x7fffffff );
 		$attrItems = $attrManager->search( $filter, ['media', 'price', 'product', 'text'] )->col( null, 'attribute.code' );
 
-		$taxrate = $this->db( 'db-woocommerce' )->query( "SELECT tax_rate FROM wp_woocommerce_tax_rates LIMIT 1" )->fetchOne();
-		$priceItem = $priceManager->create()->setCurrencyId( $currencyId )->setTaxrate( $taxrate );
-
-		// [0 => ["element" => "60cc52f6238c19.28431944", "rules" => [["section" => "628e0d91c18f96.98756437","element" => "0","operator" => "is","value" => "Chrome"]], ...]
-		$prodLogic = array_map( function( $value ) {
-			return json_decode( $value ?: '{}', JSON_OBJECT_AS_ARRAY );
-		}, $section['product_clogic'] ?? [] );
-
-		foreach( $section['multiple_radiobuttons_options_enabled'] ?? [] as $idx => $list )
+		foreach( $section['element_type'] ?? [] as $elIdx => $elType )
 		{
-			foreach( $list as $key => $status )
+			switch( $elType )
 			{
-				if( !$status ) {
-					continue;
-				}
+				case 'selectbox':
+					$attrs = $this->addSelectBox( $tid, $section, $typeCode, $selectIdx++, $attrItems, $elIdx );
+					break;
+				case 'radiobuttons':
+					$attrs = $this->addRadioButtons( $tid, $section, $typeCode, $radioIdx++, $attrItems, $elIdx );
+					break;
+				case 'product':
+					// this is not correct and must be fixed by hand because section/product logic can be very complicated
+					foreach( $attrs as $key => $list ) {
+						foreach( $list as $attr ) {
+							$this->addProducts( $section, $productIdx++, $attr );
+						}
+					}
+					$attrs = [];
+					continue 2;
+				default:
+					error_log( sprintf( 'Unknown element type %1$s', $elType ) );
+					continue 2;
+			}
 
-				$price = $section['multiple_radiobuttons_options_price'][$idx][$key] ?? 0;
-				$name = $section['multiple_radiobuttons_options_title'][$idx][$key] ?? '';
-				$image = $section['multiple_radiobuttons_options_image'][$idx][$key] ?? '';
-				$lgimage = $section['multiple_radiobuttons_options_imagel'][$idx][$key] ?? '';
-				$desc = $section['multiple_radiobuttons_options_description'][$idx][$key] ?? '';
-				$code = \Aimeos\Base\Str::slug( $section['multiple_radiobuttons_options_value'][$idx][$key] ?? '' );
-
-				if( !$code ) {
-					error_log( 'No value for multiple_radiobuttons_options_value in template ' . $tid );
-					continue;
-				}
-
-				$code .= '_' . $tid . '_' . $idx . '_' . $key;
-				$item = $attrItems[$code] ?? $attrManager->create();
-				$item->setCode( $code )->setLabel( $name ?: $code )->setType( $typeCode )->setDomain( 'product' )->setPosition( $key );
-
-				if( $image )
-				{
-					$listItem = $item->getListItems( 'media', 'default', 'icon' )->first() ?: $attrManager->createListItem();
-					$refItem = $listItem->getRefItem() ?: $mediaManager->create();
-					$refItem->setDomain( 'attribute' )->setType( 'icon' )->setUrl( $image )->setLabel( $name )->setMimetype( $this->mime( $image ) );
-					$item->addListItem( 'media', $listItem, $refItem );
-				}
-
-				if( $lgimage )
-				{
-					$listItem = $item->getListItems( 'media', 'default', 'default' )->first() ?: $attrManager->createListItem();
-					$refItem = $listItem->getRefItem() ?: $mediaManager->create();
-					$refItem->setDomain( 'attribute' )->setType( 'default' )->setUrl( $lgimage )->setLabel( $name )->setMimetype( $this->mime( $lgimage ) );
-					$item->addListItem( 'media', $listItem, $refItem );
-				}
-
-				if( $desc )
-				{
-					$listItem = $item->getListItems( 'text', 'default', 'long' )->first() ?: $attrManager->createListItem();
-					$refItem = $listItem->getRefItem() ?: $textManager->create();
-					$refItem->setDomain( 'attribute' )->setType( 'long' )->setLanguageId( $langId )->setContent( $desc )->setLabel( mb_strcut( $desc, 0, 100 ) );
-					$item->addListItem( 'text', $listItem, $refItem );
-				}
-
-				if( $price && preg_match( '/^[0-9]+\.?[0-9]*$/', $price ) === 1 )
-				{
-					$listItem = $item->getListItems( 'price', 'default', 'default' )->first() ?: $attrManager->createListItem();
-					$refItem = $listItem->getRefItem() ?: clone $priceItem;
-					$refItem->setDomain( 'attribute' )->setType( 'default' )->setValue( $price );
-					$item->addListItem( 'price', $listItem, $refItem );
-				}
-
-
-				$listItems = $item->getListItems( 'product', 'default' )->reverse();
-
-				foreach( $this->products( $section, $prodLogic, $idx, $key ) as $pos => $prodId )
-				{
-					$listItem = $item->getListItem( 'product', 'default', $prodId ) ?: $attrManager->createListItem();
-					$item->addListItem( 'product', $listItem->setRefId( $prodId )->setPosition( $pos ) );
-					$listItems->remove( $listItem->getId() );
-				}
-
-				$item->deleteListItems( $listItems );
-
-
-				$attrItems[$code] = $item;
-				$attrCodes[] = $code;
+			if( $selectIdx + $radioIdx === 1 ) { // only assign first selection level to products
+				$attrCodes = array_merge( $attrCodes, map( $attrs )->flat( 1 )->col( 'attribute.code' )->all() );
 			}
 		}
 
@@ -239,7 +380,7 @@ class WooMigrateExtraProductsOptions extends Base
 		$attrManager->save( $attrItems );
 		$attrManager->commit();
 
-		return $attrItems->only( $attrCodes )->getId()->all();
+		return $attrItems->only( array_unique( $attrCodes ) )->getId()->all();
 	}
 
 
@@ -269,77 +410,6 @@ class WooMigrateExtraProductsOptions extends Base
 		$item->setDomain( 'product' )->setCode( $code )->setLabel( $label )->setPosition( $pos )->setI18n( [$langId => $name] );
 
 		return $this->attrTypes[$code] = $manager->save( $item );
-	}
-
-
-	protected function mime( string $name ) : string
-	{
-		return match( pathinfo( $name, PATHINFO_EXTENSION ) ) {
-			'webp' => 'image/webp',
-			'jpeg' => 'image/jpeg',
-			'jpg' => 'image/jpeg',
-			'png' => 'image/png',
-			'gif' => 'image/gif',
-		};
-	}
-
-
-	/**
-	 * Returns the sorted product IDs for the option given by index and key
-	 *
-	 * @param array $section Unserialized template
-	 * @param array $prodLogic Unserialized list of product logic sections with rules
-	 * @param int $idx Section index
-	 * @param int $key Option key
-	 * @return array List of sorted product IDs
-	 */
-	protected function products( array $section, array $prodLogic, int $idx, int $key ) : array
-	{
-		$prodIds = [];
-
-		// {"section":"628e0d91c18f96.98756437","toggle":"show","what":"all","rules":[{"section":"628c97b82584d9.02380659","element":"0","operator":"is","value":"One%20Tap%20(for%20Single%20Basin)"},{"section":"628c97b82584d9.02380659","element":"1","operator":"is","value":"Deck%20Mounted"}]}
-		$secLogic = json_decode( $section['sections_clogic'][$idx] ?? '{}', JSON_OBJECT_AS_ARRAY );
-
-		if( $secKey = $secLogic['section'] ?? null )
-		{
-			// ['60cc52f6238c19.28431944' => 0, ...]
-			$prodKeys = array_flip( $section['product_uniqid'] ?? [] );
-
-			// [0 => {"element":"60cc52f6238c19.28431944","toggle":"show","what":"any","rules":[{"section":"628e0d91c18f96.98756437","element":"0","operator":"is","value":"Chrome"}]}]
-			foreach( $prodLogic as $logic )
-			{
-				$prodSecKey = '';
-
-				foreach( $logic['rules'] ?? [] as $rule )
-				{
-					if( ( $rule['section'] ?? '' ) === $secKey
-						&& ( $section['multiple_radiobuttons_options_value'][$idx][$key] ?? null ) === ( urldecode( $rule['value'] ?? '' ) )
-					) {
-						$prodSecKey = $logic['element'] ?? '';
-					}
-				}
-
-				$prodIdx = $prodKeys[$prodSecKey] ?? '';
-
-				if( $section['product_enabled'][$prodIdx] ?? null )
-				{
-					if( $section['product_mode'][$prodIdx] === 'categories' )
-					{
-						$catIds = $section['product_categoryids'][$prodIdx] ?? [];
-						$sort = $section['product_orderby'][$prodIdx] ?? 'ID';
-						$dir = $section['product_order'][$prodIdx] ?? 'asc';
-
-						$prodIds = array_merge( $prodIds, $this->catproducts( $catIds , $sort, $dir ) );
-					}
-					elseif( $section['product_mode'][$prodIdx] === 'products' )
-					{
-						$prodIds = array_merge( $prodIds, $section['product_productids'][$prodIdx] ?? [] );
-					}
-				}
-			}
-		}
-
-		return $prodIds;
 	}
 
 
@@ -378,5 +448,134 @@ class WooMigrateExtraProductsOptions extends Base
 		}
 
 		return $items->keys()->all();
+	}
+
+
+	protected function createProduct( $code, $name, $desc, $price, $images )
+	{
+		$manager = \Aimeos\MShop::create( $this->context(), 'product' );
+
+		if( strlen( $code ) > 64 ) {
+			$code = substr( $code, 0, 60 ) . '_' . substr( md5( $code ), -3 );
+		}
+
+		try {
+			$item = $manager->find( $code, ['media', 'price', 'text'] );
+		} catch( \Exception $e ) {
+			$item = $manager->create()->setCode( $code );
+		}
+
+		$mediaListItems = $item->getListItems( 'media', 'default', 'default' )->reverse();
+		foreach( array_unique( array_filter( $images ) ) as $pos => $imgurl )
+		{
+			$listItem = $mediaListItems->pop() ?: $this->listItem();
+			$refItem = $listItem->getRefItem() ?: $this->media();
+			$refItem->setType( 'default' )->setUrl( $imgurl )->setLabel( $name )->setMimetype( $this->mime( $imgurl ) );
+			$item->addListItem( 'media', $listItem, $refItem );
+		}
+		$item->deleteListItems( $mediaListItems );
+
+		if( $desc )
+		{
+			$listItem = $item->getListItems( 'text', 'default', 'long' )->first() ?: $this->listItem();
+			$refItem = $listItem->getRefItem() ?: $this->text();
+			$refItem->setType( 'long' )->setContent( $desc )->setLabel( mb_strcut( $desc, 0, 100 ) );
+			$item->addListItem( 'text', $listItem, $refItem );
+		}
+
+		if( $price && preg_match( '/^[0-9]+\.?[0-9]*$/', $price ) === 1 )
+		{
+			$listItem = $item->getListItems( 'price', 'default', 'default' )->first() ?: $this->listItem();
+			$refItem = $listItem->getRefItem() ?: $this->price();
+			$refItem->setType( 'default' )->setValue( $price );
+			$item->addListItem( 'price', $listItem, $refItem );
+		}
+
+		$manager->save( $item->setLabel( $name ) );
+	}
+
+
+	/**
+	 * Returns an new attribute list item
+	 *
+	 * @return \Aimeos\MShop\Common\Item\Lists\Iface New list Item
+	 */
+	protected function listItem() : \Aimeos\MShop\Common\Item\Lists\Iface
+	{
+		if( !isset( $this->listItem ) ) {
+			$this->listItem = \Aimeos\MShop::create( $this->context(), 'attribute' )->createListItem();
+		}
+
+		return clone $this->listItem;
+	}
+
+
+	/**
+	 * Returns an new media item
+	 *
+	 * @return \Aimeos\MShop\Media\Item\Iface New media Item
+	 */
+	protected function media() : \Aimeos\MShop\Media\Item\Iface
+	{
+		if( !isset( $this->media ) )
+		{
+			$manager = \Aimeos\MShop::create( $this->context(), 'media' );
+			$this->media = $manager->create()->setDomain( 'attribute' );
+		}
+
+		return clone $this->media;
+	}
+
+
+	protected function mime( string $name ) : string
+	{
+		return match( pathinfo( $name, PATHINFO_EXTENSION ) ) {
+			'webp' => 'image/webp',
+			'jpeg' => 'image/jpeg',
+			'jpg' => 'image/jpeg',
+			'png' => 'image/png',
+			'gif' => 'image/gif',
+		};
+	}
+
+
+	/**
+	 * Returns an new price item
+	 *
+	 * @return \Aimeos\MShop\Price\Item\Iface New price Item
+	 */
+	protected function price() : \Aimeos\MShop\Price\Item\Iface
+	{
+		if( !isset( $this->price ) )
+		{
+			$context = $this->context();
+			$currencyId = $context->locale()->getCurrencyId();
+			$taxrate = $this->db( 'db-woocommerce' )->query( "SELECT tax_rate FROM wp_woocommerce_tax_rates LIMIT 1" )->fetchOne();
+
+			$manager = \Aimeos\MShop::create( $context, 'price' );
+			$this->price = $manager->create()->setDomain( 'attribute' )->setCurrencyId( $currencyId )->setTaxrate( $taxrate );
+		}
+
+		return clone $this->price;
+	}
+
+
+	/**
+	 * Returns an new text item
+	 *
+	 * @return \Aimeos\MShop\Text\Item\Iface New text Item
+	 */
+	protected function text() : \Aimeos\MShop\Text\Item\Iface
+	{
+		if( !isset( $this->text ) )
+		{
+			$context = $this->context();
+			$langId = $context->locale()->getLanguageId();
+
+			$manager = \Aimeos\MShop::create( $context, 'text' );
+			$this->text = $manager->create()->setDomain( 'attribute' )->setLanguageId( $langId );
+		}
+
+		return clone $this->text;
 	}
 }
