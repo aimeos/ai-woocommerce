@@ -277,7 +277,8 @@ class WooMigrateProducts extends Base
 
 				$listItem = $listItems->pop() ?? $manager->createListItem();
 				$refItem = $listItem->getRefItem() ?: clone $priceItem;
-				$item->addListItem( 'price', $listItem, $refItem->setValue( $row['price'] ) );
+				$refItem->setValue( $row['price'] );
+				$item->addListItem( 'price', $listItem, $refItem );
 
 				if( $row['saleprice'] > 0 )
 				{
@@ -286,14 +287,21 @@ class WooMigrateProducts extends Base
 					$refItem->setValue( $row['saleprice'] )->setRebate( $row['price'] - $row['saleprice'] );
 					$item->addListItem( 'price', $listItem, $refItem );
 				}
+
+				$item->deleteListItems( $listItems );
 			}
 
 			if( $item = $items->get( $row['selectionid'] ) )
 			{
-				$listItem = $item->getListItems( 'price', 'default', 'default' )->first() ?? $manager->createListItem();
+				$listItems = $item->getListItems( 'price', 'default', 'default' )->reverse();
+
+				$listItem = $listItems->pop() ?? $manager->createListItem();
 				$refItem = $listItem->getRefItem() ?: clone $priceItem;
-				$refItem->setValue( $row['saleprice'] )->setRebate( $row['saleprice'] > 0 ? $row['price'] - $row['saleprice'] : $row['price'] );
+				$refItem->setValue( $row['saleprice'] > 0 ? $row['saleprice'] : $row['price'] )
+					->setRebate( $row['saleprice'] > 0 ? $row['price'] - $row['saleprice'] : $row['price'] );
+
 				$item->addListItem( 'price', $listItem, $refItem );
+				$listItems->deleteListItems( $listItems );
 			}
 		}
 	}
