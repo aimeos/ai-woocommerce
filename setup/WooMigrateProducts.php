@@ -81,6 +81,7 @@ class WooMigrateProducts extends Base
 		$this->properties( $items );
 		$this->categories( $items );
 		$this->attributes( $items );
+		$this->deliveries( $items );
 		$this->brands( $items );
 		$this->images( $items );
 		$this->prices( $items );
@@ -242,7 +243,7 @@ class WooMigrateProducts extends Base
 		}
 
 		$attrManager = \Aimeos\MShop::create( $this->context(), 'attribute' );
-		$attrItems = $attrManager->search( $attrManager->filter()->add( 'attriubte.type', '==', 'delivery' ) )->col( null, 'attribute.code' );
+		$attrItems = $attrManager->search( $attrManager->filter()->add( 'attribute.type', '==', 'delivery' ) )->col( null, 'attribute.code' );
 
 		$result = $this->db( 'db-woocommerce' )->query( "
 			SELECT
