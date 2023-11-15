@@ -221,6 +221,52 @@ class WooMigrateProducts extends Base
 	}
 
 
+	protected function deliveries( \Aimeos\Map $items )
+	{
+		$typeManager = \Aimeos\MShop::create( $this->context(), 'attribute/type' );
+
+		try {
+			$typeItem = $typeManager->find( 'delivery', [], 'product' );
+		} catch( \Exception $e ) {
+			$typeItem = $typeManager->save( $typeManager->create()->setDomain( 'product' )->setCode( 'delivery' )->setLabel( 'Delivery' ) );
+		}
+
+		$attrManager = \Aimeos\MShop::create( $this->context(), 'attribute' );
+		$attrItems = $attrManager->search( $attrManager->filter()->add( 'attriubte.type', '==', 'delivery' ) )->col( null, 'attribute.code' );
+
+		$result = $this->db( 'db-woocommerce' )->query( "
+			SELECT
+				p.ID,
+				t.name,
+				t.slug
+			FROM wp_posts AS p
+			JOIN wp_term_relationships AS tr ON p.ID = tr.object_id
+			JOIN wp_terms AS t ON t.term_id = tr.term_taxonomy_id
+			JOIN wp_term_taxonomy AS tt ON tt.term_id = t.term_id
+			WHERE tt.taxonomy = 'product_shipping_class'
+		" );
+
+		$manager = \Aimeos\MShop::create( $this->context(), 'product' );
+
+		foreach( $result->iterateAssociative() as $row )
+		{
+			if( $item = $items->get( $row['ID'] ) )
+			{
+				$code = $row['slug'];
+
+				if( ( $attrItem = $attrItems->get( $code ) ) === null )
+				{
+					$attrItem = $attrManager->create()->setDomain( 'product' )->setType( 'delivery' )->setLabel( $row['name'] );
+					$attrItems[$code] = $attrManager->save( $attrItem->setCode( $code ) );
+				}
+
+				$listItem = $item->getListItem( 'attribute', 'hidden', $attrItem->getId() ) ?? $manager->createListItem();
+				$item->addListItem( 'attribute', $listItem->setType( 'hidden' )->setRefId( $attrItem->getId() ) );
+			}
+		}
+	}
+
+
 	protected function images( \Aimeos\Map $items )
 	{
 		$mediaManager = \Aimeos\MShop::create( $this->context(), 'media' );
