@@ -59,7 +59,7 @@ class WooMigrateProducts extends Base
 			WHERE p.post_type = 'product' AND p.post_status = 'publish' AND tt.taxonomy='product_type'
 		" );
 
-		$items = $this->update( $result, $items );
+		$items = $this->products( $result, $items );
 
 		$result = $db->query( "
 			SELECT
@@ -76,7 +76,15 @@ class WooMigrateProducts extends Base
 			WHERE p.post_type = 'product_variation' AND p.post_status = 'publish'
 		" );
 
-		$items = $this->update( $result, $items );
+		$items = $this->products( $result, $items );
+
+		$this->properties( $items );
+		$this->categories( $items );
+		$this->attributes( $items );
+		$this->brands( $items );
+		$this->images( $items );
+		$this->prices( $items );
+		$this->suggests( $items );
 
 		$manager->begin();
 		$manager->save( $items );
@@ -151,7 +159,9 @@ class WooMigrateProducts extends Base
 						continue;
 					}
 
-					if( ( $cond[$ftype]['is_variation'] ?? 0 ) && str_contains( $cond[$ftype]['value'] ?? '', $name ) ) {
+					$value = $cond[$ftype]['value'] ?? '';
+
+					if( ( $cond[$ftype]['is_variation'] ?? 0 ) && ( $value === '' || str_contains( $value, $name ) ) ) {
 						$listType = 'variant';
 					}
 
@@ -402,6 +412,90 @@ class WooMigrateProducts extends Base
 	}
 
 
+	public function products( \Doctrine\DBAL\Result $result, \Aimeos\Map $items ) : \Aimeos\Map
+	{
+		$stockManager = \Aimeos\MShop::create( $this->context(), 'stock' );
+		$textManager = \Aimeos\MShop::create( $this->context(), 'text' );
+		$manager = \Aimeos\MShop::create( $this->context(), 'product' );
+
+		$langId = $this->context()->locale()->getLanguageId();
+		$rows = [];
+
+		foreach( $result->iterateAssociative() as $row )
+		{
+			$item = $items->get( $row['ID'] ) ?: $manager->create();
+			$item->setCode( str_replace( ' ', '-', $row['sku'] ) ?: 'woo-' . $row['ID'] )
+				->setUrl( $row['post_name'] )
+				->setLabel( $row['post_title'] )
+				->setType( $this->type( $row['type'] ?? '' ) )
+				->setTimeCreated( $row['post_date_gmt'] );
+
+			$items[$row['ID']] = $item;
+			$rows[] = $row;
+		}
+
+		$manager->begin();
+		$manager->save( $items );
+		$manager->commit();
+
+		$this->db( 'db-product' )->transaction( function( $db ) use ( $items ) {
+
+			foreach( $items as $id => $item )
+			{
+				if( $id != $item->getId() )
+				{
+					$db->update( 'mshop_product', ['id' => $id], ['id' => $item->getId()] );
+					$item->setId( $id );
+				}
+			}
+		} );
+
+
+		foreach( $rows as $row )
+		{
+			$item = $items->get( $row['ID'] );
+
+			if( $text = ( $row['post_content'] ?? null ) ?: ( $row['post_excerpt'] ?? null ) )
+			{
+				$listItem = $item->getListItems( 'text', 'default', 'long' )->first() ?? $manager->createListItem();
+				$refItem = $listItem->getRefItem() ?: $textManager->create();
+				$refItem->setType( 'long' )->setLanguageId( $langId )->setContent( $text );
+				$item->addListItem( 'text', $listItem, $refItem->setLabel( mb_substr( strip_tags( $text ), 0, 60 ) ) );
+			}
+
+			if( $text = $row['metatitle'] ?? null )
+			{
+				$listItem = $item->getListItems( 'text', 'default', 'meta-title' )->first() ?? $manager->createListItem();
+				$refItem = $listItem->getRefItem() ?: $textManager->create();
+				$refItem->setType( 'meta-title' )->setLanguageId( $langId )->setContent( $text );
+				$item->addListItem( 'text', $listItem, $refItem->setLabel( mb_substr( strip_tags( $text ), 0, 60 ) ) );
+			}
+
+			if( $text = $row['metadesc'] ?? null )
+			{
+				$listItem = $item->getListItems( 'text', 'default', 'meta-description' )->first() ?? $manager->createListItem();
+				$refItem = $listItem->getRefItem() ?: $textManager->create();
+				$refItem->setType( 'meta-description' )->setLanguageId( $langId )->setContent( $text );
+				$item->addListItem( 'text', $listItem, $refItem->setLabel( mb_substr( strip_tags( $text ), 0, 60 ) ) );
+			}
+
+			if( $row['stock_status'] ?? null )
+			{
+				$stockItem = $item->getStockItems( 'default' )->first() ?? $stockManager->create();
+				$stockManager->save( $stockItem->setProductId( $row['ID'] )->setStockLevel( $row['stock_quantity'] ) );
+			}
+
+			if( $parent = $items[$row['post_parent'] ?? null] ?? null )
+			{
+				$listItem = $parent->getListItem( 'product', 'default', $row['ID'] ) ?? $manager->createListItem();
+				$parent->addListItem( 'product', $listItem->setRefId( $row['ID'] ) );
+			}
+		}
+
+		return $items;
+	}
+
+
 	protected function properties( \Aimeos\Map $items )
 	{
 		$result = $this->db( 'db-woocommerce' )->query( "
@@ -455,82 +549,5 @@ class WooMigrateProducts extends Base
 			'variable' => 'select',
 			default => 'default'
 		};
-	}
-
-
-	public function update( \Doctrine\DBAL\Result $result, \Aimeos\Map $items ) : \Aimeos\Map
-	{
-		$stockManager = \Aimeos\MShop::create( $this->context(), 'stock' );
-		$textManager = \Aimeos\MShop::create( $this->context(), 'text' );
-		$manager = \Aimeos\MShop::create( $this->context(), 'product' );
-
-		$langId = $this->context()->locale()->getLanguageId();
-		$db2 = $this->db( 'db-product' );
-
-		foreach( $result->iterateAssociative() as $row )
-		{
-			$item = $items[$row['ID']] ?? $manager->create();
-			$item->setCode( str_replace( ' ', '-', $row['sku'] ) ?: 'woo-' . $row['ID'] )
-				->setUrl( $row['post_name'] )
-				->setLabel( $row['post_title'] )
-				->setType( $this->type( $row['type'] ?? '' ) )
-				->setTimeCreated( $row['post_date_gmt'] );
-
-			if( !$item->getId() )
-			{
-				$item = $manager->save( $item );
-
-				$db2->update( 'mshop_product', ['id' => $row['ID']], ['id' => $item->getId()] );
-				$item->setId( $row['ID'] );
-			}
-
-			if( $text = ( $row['post_content'] ?? null ) ?: ( $row['post_excerpt'] ?? null ) )
-			{
-				$listItem = $item->getListItems( 'text', 'default', 'long' )->first() ?? $manager->createListItem();
-				$refItem = $listItem->getRefItem() ?: $textManager->create();
-				$refItem->setType( 'long' )->setLanguageId( $langId )->setContent( $text );
-				$item->addListItem( 'text', $listItem, $refItem->setLabel( mb_substr( strip_tags( $text ), 0, 60 ) ) );
-			}
-
-			if( $text = $row['metatitle'] ?? null )
-			{
-				$listItem = $item->getListItems( 'text', 'default', 'meta-title' )->first() ?? $manager->createListItem();
-				$refItem = $listItem->getRefItem() ?: $textManager->create();
-				$refItem->setType( 'meta-title' )->setLanguageId( $langId )->setContent( $text );
-				$item->addListItem( 'text', $listItem, $refItem->setLabel( mb_substr( strip_tags( $text ), 0, 60 ) ) );
-			}
-
-			if( $text = $row['metadesc'] ?? null )
-			{
-				$listItem = $item->getListItems( 'text', 'default', 'meta-description' )->first() ?? $manager->createListItem();
-				$refItem = $listItem->getRefItem() ?: $textManager->create();
-				$refItem->setType( 'meta-description' )->setLanguageId( $langId )->setContent( $text );
-				$item->addListItem( 'text', $listItem, $refItem->setLabel( mb_substr( strip_tags( $text ), 0, 60 ) ) );
-			}
-
-			if( $row['stock_status'] ?? null )
-			{
-				$stockItem = $item->getStockItems( 'default' )->first() ?? $stockManager->create();
-				$stockManager->save( $stockItem->setProductId( $row['ID'] )->setStockLevel( $row['stock_quantity'] ) );
-			}
-
-			if( $parent = $items[$row['post_parent'] ?? null] ?? null )
-			{
-				$listItem = $parent->getListItem( 'product', 'default', $row['ID'] ) ?? $manager->createListItem();
-				$parent->addListItem( 'product', $listItem->setRefId( $row['ID'] ) );
-			}
-
-			$items[$item->getId()] = $item;
-		}
-
-		$this->properties( $items );
-		$this->categories( $items );
-		$this->attributes( $items );
-		$this->brands( $items );
-		$this->images( $items );
-		$this->prices( $items );
-		$this->suggests( $items );
-
-		return $items;
 	}
 }
