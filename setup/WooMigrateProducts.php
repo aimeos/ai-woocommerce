@@ -342,7 +342,8 @@ class WooMigrateProducts extends Base
 		$priceManager = \Aimeos\MShop::create( $context, 'price' );
 
 		$taxrate = $db->query( "SELECT tax_rate FROM wp_woocommerce_tax_rates LIMIT 1" )->fetchOne();
-		$priceItem = $priceManager->create()->setDomain( 'product' )->setCurrencyId( $currencyId )->setTaxrate( $taxrate );
+		$priceItem = $priceManager->create()->setDomain( 'product' )->setType( 'default' )
+			->setCurrencyId( $currencyId )->setTaxrate( $taxrate );
 
 		$result = $db->query( "
 			SELECT
@@ -353,13 +354,18 @@ class WooMigrateProducts extends Base
 			FROM wp_posts p
 			JOIN wp_postmeta pm ON p.ID = pm.post_id AND pm.meta_key = '_regular_price'
 			LEFT JOIN wp_postmeta pms ON p.ID = pms.post_id AND pms.meta_key = '_sale_price'
+			ORDER BY p.ID
 		" );
 
 		foreach( $result->iterateAssociative() as $row )
 		{
+			if( !$row['price'] ) {
+				continue;
+			}
+
 			if( $item = $items->get( $row['ID'] ) )
 			{
-				$listItems = $item->getListItems( 'price', 'default', 'default' )->reverse();
+				$listItems = $item->getListItems( 'price', 'default', 'default', false )->reverse();
 
 				$listItem = $listItems->pop() ?? $manager->createListItem();
 				$refItem = $listItem->getRefItem() ?: clone $priceItem;
@@ -379,15 +385,18 @@ class WooMigrateProducts extends Base
 
 			if( $item = $items->get( $row['selectionid'] ) )
 			{
-				$listItems = $item->getListItems( 'price', 'default', 'default' )->reverse();
+				$value = $row['saleprice'] > 0 ? $row['saleprice'] : $row['price'];
+				$rebate = $row['saleprice'] > 0 ? (float) $row['price'] - (float) $row['saleprice'] : '0.00';
 
-				$listItem = $listItems->pop() ?? $manager->createListItem();
-				$refItem = $listItem->getRefItem() ?: clone $priceItem;
-				$refItem->setValue( $row['saleprice'] > 0 ? $row['saleprice'] : $row['price'] )
-					->setRebate( $row['saleprice'] > 0 ? $row['price'] - $row['saleprice'] : $row['price'] );
+				if( ( $listItem = $item->getListItems( 'price', 'default', 'default', false )->first() ) === null ) {
+					$item->addListItem( 'price', $listItem = $manager->createListItem(), $refItem = clone $priceItem );
+				} else {
+					$refItem = $listItem->getRefItem();
+				}
 
-				$item->addListItem( 'price', $listItem, $refItem );
-				$item->deleteListItems( $listItems );
+				if( $refItem->getValue() == 0 || $refItem->getValue() > $value ) {
+					$refItem->setValue( $value )->setRebate( $rebate );
+				}
 			}
 		}
 	}
