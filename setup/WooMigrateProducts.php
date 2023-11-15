@@ -103,33 +103,73 @@ class WooMigrateProducts extends Base
 
 	protected function attributes( \Aimeos\Map $items )
 	{
-		$manager = \Aimeos\MShop::create( $this->context(), 'attribute' );
-		$attrMap = $manager->search( $manager->filter()->slice( 0, 0x7fffffff ) )->rekey( function( $item ) {
+		$attrManager = \Aimeos\MShop::create( $this->context(), 'attribute' );
+		$attrMap = $attrManager->search( $attrManager->filter()->slice( 0, 0x7fffffff ) )->rekey( function( $item ) {
 			return $item->getType() . '/' . $item->getCode();
 		} );
 
+		$typeManager = \Aimeos\MShop::create( $this->context(), 'attribute/type' );
+		$attrTypes = $typeManager->search( $typeManager->filter()->slice( 0, 0x7fffffff ) )->col( null, 'attribute.type.code' );
+
 		$result = $this->db( 'db-woocommerce' )->query( "
-			SELECT p.ID, pm.meta_key, pm.meta_value
+			SELECT
+				p.ID,
+				pm.meta_key AS attrtype,
+				pm.meta_value AS attrname,
+				pmv.meta_value AS cond
 			FROM wp_posts p
-			JOIN wp_postmeta pm ON p.ID = pm.post_id
-			WHERE p.post_type = 'product_variation'
-				AND p.post_status = 'publish'
-				AND pm.meta_key LIKE 'attribute_%'
+			JOIN wp_postmeta pm ON p.ID = pm.post_id AND pm.meta_key LIKE 'attribute_%'
+			LEFT JOIN wp_postmeta pmv ON p.post_parent = pmv.post_id AND pmv.meta_key LIKE '_product_attributes'
+			WHERE
+				p.post_type = 'product_variation' AND
+				p.post_status = 'publish'
 		" );
 
 		$manager = \Aimeos\MShop::create( $this->context(), 'product' );
 
 		foreach( $result->iterateAssociative() as $row )
 		{
-			$len = substr( $row['meta_key'], 10, 3 ) === 'pa_' ? 13 : 10;
-			$key = substr( $row['meta_key'], $len ) . '/' . $row['meta_value'];
+			$name = $row['attrname'];
+			$code = \Aimeos\Base\Str::slug( $name );
+			$ftype = substr( $row['attrtype'], 10 );
+			$type = substr( $ftype, substr_compare( $ftype, 'pa_', 0, 3 ) === 0 ? 3 : 0 );
+			$key = $type . '/' . $code;
 
-			if( ( $item = $items->get( $row['ID'] ) ) !== null && ( $attrid = $attrMap[$key]?->getId() ) !== null )
+			if( $item = $items->get( $row['ID'] ) )
 			{
-				$listItem = $item->getListItem( 'attribute', 'variant', $attrid ) ?? $manager->createListItem();
-				$item->addListItem( 'attribute', $listItem->setType( 'variant' )->setRefId( $attrid ) );
+				$listType = 'default';
+
+				if( ( $attrItem = $attrMap->get( $key ) ) === null )
+				{
+					$attrItem = $attrManager->create()->setDomain( 'product' )->setType( $type )->setLabel( $name );
+					$attrMap[$key] = $attrManager->save( $attrItem->setCode( $code ) );
+				}
+
+				if( ( $cond = unserialize( $row['cond'] ) ) !== false )
+				{
+					if( !( $cond[$ftype]['is_visible'] ?? 1 ) ) {
+						continue;
+					}
+
+					if( ( $cond[$ftype]['is_variation'] ?? 0 ) && str_contains( $cond[$ftype]['value'] ?? '', $name ) ) {
+						$listType = 'variant';
+					}
+
+					$attrItem->setPosition( $cond[$ftype]['position'] ?? 0 );
+				}
+
+				if( $attrTypes->get( $type ) === null ) {
+					$attrTypes[$type] = $typeManager->create()->setDomain( 'product' )->setCode( $type )->setLabel( $type );
+				}
+
+				$listItem = $item->getListItem( 'attribute', $listType, $attrItem->getId() ) ?? $manager->createListItem();
+				$item->addListItem( 'attribute', $listItem->setType( $listType )->setRefId( $attrItem->getId() ) );
 			}
 		}
+
+		$typeManager->begin();
+		$typeManager->save( $attrTypes );
+		$typeManager->commit();
 	}
 
 
