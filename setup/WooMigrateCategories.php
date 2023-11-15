@@ -52,7 +52,7 @@ class WooMigrateCategories extends Base
 		foreach( $result->iterateAssociative() as $row )
 		{
 			$item = $items[$row['term_id']] ?? $manager->create();
-			$item->setCode( $row['slug'] )->setLabel( $row['name'] )->setUrl( $row['slug'] );
+			$item->setCode( $row['slug'] )->setLabel( html_entity_decode( $row['name'] ) )->setUrl( $row['slug'] );
 
 			if( !$item->getId() )
 			{

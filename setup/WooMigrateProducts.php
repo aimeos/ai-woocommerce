@@ -341,7 +341,7 @@ class WooMigrateProducts extends Base
 					->setRebate( $row['saleprice'] > 0 ? $row['price'] - $row['saleprice'] : $row['price'] );
 
 				$item->addListItem( 'price', $listItem, $refItem );
-				$listItems->deleteListItems( $listItems );
+				$item->deleteListItems( $listItems );
 			}
 		}
 	}
