@@ -368,9 +368,7 @@ class WooMigrateExtraProductsOptions extends Base
 						}
 					}
 					$attrs = [];
-					continue 2;
 				default:
-					error_log( sprintf( 'Unknown element type %1$s', $elType ) );
 					continue 2;
 			}
 
