@@ -27,24 +27,33 @@ class WooMigrateAttributes extends Base
 
 		$this->info( 'Migrate WooCommerce attributes', 'vv' );
 
-		$textManager = \Aimeos\MShop::create( $this->context(), 'text' );
-		$manager = \Aimeos\MShop::create( $this->context(), 'attribute' );
-		$items = $manager->search( $manager->filter()->slice( 0, 0x7fffffff ), ['text'] );
-
-		$langId = $this->context()->locale()->getLanguageId();
-
-		$db2 = $this->db( 'db-attribute' );
+		$context = $this->context();
+		$mediaManager = \Aimeos\MShop::create( $context, 'media' );
+		$textManager = \Aimeos\MShop::create( $context, 'text' );
+		$manager = \Aimeos\MShop::create( $context, 'attribute' );
+		$items = $manager->search( $manager->filter()->slice( 0, 0x7fffffff ), ['media', 'text'] );
 
 		$result = $db->query( "
-			SELECT t.term_id, t.name, t.slug, tt.taxonomy, tt.description
+			SELECT
+				t.term_id,
+				t.name,
+				t.slug,
+				tt.taxonomy,
+				tt.description,
+				pi.guid AS imgurl,
+				pi.post_title AS imglabel,
+				pi.post_mime_type AS mimetype
 			FROM wp_terms t
-			JOIN wp_term_taxonomy tt ON t.term_id=tt.term_id
-			WHERE taxonomy LIKE 'pa_%'
+			JOIN wp_term_taxonomy tt ON t.term_id=tt.term_id AND tt.taxonomy LIKE 'pa_%'
+			LEFT JOIN wp_termmeta tmi ON tmi.term_id=t.term_id AND tmi.meta_key='st-image-swatch'
+			LEFT JOIN wp_posts pi ON pi.ID=tmi.meta_value
 			ORDER BY tt.taxonomy, t.name
 		" );
 
-		$pos = 0;
+		$langId = $this->context()->locale()->getLanguageId();
+		$rows = [];
 		$type = '';
+		$pos = 0;
 
 		foreach( $result->iterateAssociative() as $row )
 		{
@@ -61,13 +70,29 @@ class WooMigrateAttributes extends Base
 				->setPosition( $pos++ )
 				->setType( substr( $row['taxonomy'], 3 ) );
 
-			if( !$item->getId() )
-			{
-				$item = $manager->save( $item );
+			$items[$row['term_id']] = $item;
+			$rows[] = $row;
+		}
 
-				$db2->update( 'mshop_attribute', ['id' => $row['term_id']], ['id' => $item->getId()] );
-				$item->setId( $row['term_id'] );
+		$manager->begin();
+		$manager->save( $items );
+		$manager->commit();
+
+		$this->db( 'db-attribute' )->transaction( function( $db ) use ( $items ) {
+
+			foreach( $items as $id => $item )
+			{
+				if( $id != $item->getId() )
+				{
+					$db->update( 'mshop_attribute', ['id' => $row['term_id']], ['id' => $item->getId()] );
+					$item->setId( $id );
+				}
 			}
+		} );
+
+		foreach( $rows as $row )
+		{
+			$item = $items->get( $row['term_id'] );
 
 			if( $text = $row['description'] ?? null )
 			{
@@ -77,7 +102,17 @@ class WooMigrateAttributes extends Base
 				$item->addListItem( 'text', $listItem, $refItem->setLabel( mb_substr( strip_tags( $text ), 0, 60 ) ) );
 			}
 
-			$manager->save( $item );
+			if( $image = $row['imgurl'] ?? null )
+			{
+				$listItem = $item->getListItems( 'media', 'default', 'icon' )->first() ?? $manager->createListItem();
+				$refItem = $listItem->getRefItem() ?: $mediaManager->create();
+				$refItem->setType( 'icon' )->setUrl( $image )->setMimetype( $row['mimetype'] ?? '' );
+				$item->addListItem( 'media', $listItem, $refItem->setLabel( $row['imglabel'] ?? $image ) );
+			}
 		}
+
+		$manager->begin();
+		$manager->save( $items );
+		$manager->commit();
 	}
 }
