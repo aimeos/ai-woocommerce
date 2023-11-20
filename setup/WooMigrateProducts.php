@@ -79,9 +79,10 @@ class WooMigrateProducts extends Base
 		$items = $this->products( $result, $items );
 
 		$this->properties( $items );
+		$this->deliveries( $items );
 		$this->categories( $items );
 		$this->attributes( $items );
-		$this->deliveries( $items );
+		$this->attributeVariants( $items );
 		$this->brands( $items );
 		$this->images( $items );
 		$this->prices( $items );
