@@ -63,7 +63,7 @@ class WooMigrateAttributes extends Base
 				$pos = 0;
 			}
 
-			$item = $items[$row['term_id']] ?? $manager->create();
+			$item = $items->get( $row['term_id'] ) ?: $manager->create();
 			$item->setCode( $row['slug'] )
 				->setLabel( $row['name'] )
 				->setDomain( 'product' )
@@ -84,7 +84,7 @@ class WooMigrateAttributes extends Base
 			{
 				if( $id != $item->getId() )
 				{
-					$db->update( 'mshop_attribute', ['id' => $row['term_id']], ['id' => $item->getId()] );
+					$db->update( 'mshop_attribute', ['id' => $id], ['id' => $item->getId()] );
 					$item->setId( $id );
 				}
 			}
