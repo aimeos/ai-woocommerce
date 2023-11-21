@@ -473,15 +473,15 @@ class WooMigrateProducts extends Base
 		{
 			$item = $items->get( $row['ID'] );
 
-			if( $text = $row['post_excerpt'] ?? null )
+			if( $short = $row['post_excerpt'] ?? null )
 			{
 				$listItem = $item->getListItems( 'text', 'default', 'short' )->first() ?? $manager->createListItem();
 				$refItem = $listItem->getRefItem() ?: $textManager->create();
-				$refItem->setType( 'short' )->setLanguageId( $langId )->setContent( $text );
-				$item->addListItem( 'text', $listItem, $refItem->setLabel( mb_substr( strip_tags( $text ), 0, 60 ) ) );
+				$refItem->setType( 'short' )->setLanguageId( $langId )->setContent( $short );
+				$item->addListItem( 'text', $listItem, $refItem->setLabel( mb_substr( strip_tags( $short ), 0, 60 ) ) );
 			}
 
-			if( $text = $row['post_content'] ?? null )
+			if( ( $text = $row['post_content'] ?? null ) && $text !== $short )
 			{
 				$listItem = $item->getListItems( 'text', 'default', 'long' )->first() ?? $manager->createListItem();
 				$refItem = $listItem->getRefItem() ?: $textManager->create();
