@@ -278,10 +278,8 @@ class WooMigrateProducts extends Base
 
 		foreach( $result->iterateAssociative() as $row )
 		{
-			if( $item = $items->get( $row['ID'] ) )
+			if( ( $item = $items->get( $row['ID'] ) ) && ( $code = $row['slug'] ) )
 			{
-				$code = $row['slug'];
-
 				if( ( $attrItem = $attrItems->get( $code ) ) === null )
 				{
 					$attrItem = $attrManager->create()->setDomain( 'product' )->setType( 'delivery' )->setLabel( $row['name'] );
@@ -387,10 +385,6 @@ class WooMigrateProducts extends Base
 
 		foreach( $result->iterateAssociative() as $row )
 		{
-			if( !$row['price'] ) {
-				continue;
-			}
-
 			if( $item = $items->get( $row['ID'] ) )
 			{
 				$listItems = $item->getListItems( 'price', 'default', 'default', false )->reverse();

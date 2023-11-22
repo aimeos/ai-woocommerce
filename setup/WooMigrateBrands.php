@@ -31,7 +31,7 @@ class WooMigrateBrands extends Base
 		$mediaManager = \Aimeos\MShop::create( $context, 'media' );
 		$textManager = \Aimeos\MShop::create( $context, 'text' );
 		$manager = \Aimeos\MShop::create( $context, 'supplier' );
-		$brands = $manager->search( $manager->filter()->slice( 0, 0x7fffffff ), ['text'] );
+		$brands = $manager->search( $manager->filter()->slice( 0, 0x7fffffff ), ['media', 'text'] );
 
 		$langId = $context->locale()->getLanguageId();
 
