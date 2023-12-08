@@ -435,8 +435,14 @@ class WooMigrateProducts extends Base
 
 		foreach( $result->iterateAssociative() as $row )
 		{
+			$code = str_replace( ' ', '-', $row['sku'] );
+
+			if( strlen( $code ) > 64 ) {
+				$code = substr( $code, 0, 60 ) . '_' . substr( md5( microtime( true) . rand() ), -3 );
+			}
+
 			$item = $items->get( $row['ID'] ) ?: $manager->create();
-			$item->setCode( str_replace( ' ', '-', $row['sku'] ) ?: 'woo-' . $row['ID'] )
+			$item->setCode( $code ?: 'woo-' . $row['ID'] )
 				->setUrl( $row['post_name'] )
 				->setLabel( $row['post_title'] )
 				->setType( $this->type( $row['type'] ?? '' ) )
