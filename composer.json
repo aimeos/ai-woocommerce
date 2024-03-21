@@ -1,13 +1,13 @@
 {
 	"name": "aimeos/ai-woocommerce",
 	"description": "Aimeos ai-woocommerce extension",
-	"keywords": ["aimeos", "extension"],
+	"keywords": ["aimeos", "extension", "woocommerce", "migration"],
 	"type": "aimeos-extension",
 	"license": "LGPL-3.0",
 	"prefer-stable": true,
 	"minimum-stability": "dev",
 	"require": {
 		"php": "^8.0.11",
-		"aimeos/aimeos-core": "2023.10.*"
+		"aimeos/aimeos-core": "dev-master"
 	}
 }
