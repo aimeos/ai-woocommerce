@@ -338,6 +338,17 @@ class WooMigrateProducts extends Base
 					$refItem = $listItem->getRefItem() ?: $mediaManager->create();
 					$refItem->setUrl( $image )->setLabel( $row['post_title'] )->setMimetype( $this->mime( $image ) );
 					$item->addListItem( 'media', $listItem->setPosition( $pos++ ), $refItem );
+
+					$attrListItems = $item->getListItems( 'attribute', 'variant', null, false );
+
+					foreach( $attrListItems as $attrListItem )
+					{
+						if( $attrItem = $attrListItem->getRefItem() )
+						{
+							$listItem = $refItem->getListItem( 'attribute', 'variant', (string) $attrItem->getId() ) ?? $mediaManager->createListItem();
+							$refItem->addListItem( 'attribute', $listItem->setType( 'variant' ), $attrItem );
+						}
+					}
 				}
 			}
 		}
