@@ -21,6 +21,9 @@ Configure your Wordpress database in your Laravel `./config/shop.php`:
 
 ```php
 	'resource' => [
+		'db' => [
+			// existing DB connection settings
+		],
 		'db-woocommerce' => [
 			'adapter' => 'mysql',
 			'host' => '127.0.0.1',
@@ -29,11 +32,10 @@ Configure your Wordpress database in your Laravel `./config/shop.php`:
 			'username' => 'wp_db_user',
 			'password' => 'wp_password',
 		],
-        // existing DB connection settings
-    ],
+	],
 ```
 
-**Caution:** Make sure the Aimeos installation contains no demo data!
+**Caution:** Make sure the Aimeos installation contains no demo data and `db-woocommerce` is at the end of the `resource` list!
 
 Afterwards, run this command to execute all setup tasks including those from the ai-woocommerce package:
 
