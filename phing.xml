@@ -1,26 +1,32 @@
 <?xml version="1.0" encoding="UTF-8"?>
 
-<project name="ai-woocommerce extension" default="test">
+<project name="ai-woocommerce" default="test">
 
 	<target name="test" description="Executes unit tests" depends="clean">
+		<echo msg="Nothing to do" />
 	</target>
 
 	<target name="coverage" description="Generates code coverage report" depends="clean">
+		<echo msg="Nothing to do" />
 	</target>
 
 	<target name="check" description="Executes code sniffer">
+		<echo msg="Nothing to do" />
 	</target>
 
 	<target name="clean" description="Cleans up temporary files">
+		<echo msg="Nothing to do" />
 	</target>
 
 	<target name="i18n" description="Creates translation message files">
+		<echo msg="Nothing to do" />
 	</target>
 
 	<target name="build" description="Builds package for deployment">
+		<echo msg="Nothing to do" />
 	</target>
 
-	<target name="all" description="Builds all parts of the package">
+	<target name="all" depends="coverage,check" description="Builds all parts of the package">
 	</target>
 
 </project>
